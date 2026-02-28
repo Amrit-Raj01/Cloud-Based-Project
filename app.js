@@ -1,35 +1,23 @@
 // ════════════════════════════════════════════════════════════
-//  VAULT — app.js
-//  All logic lives here. When you add a backend (EC2, etc.),
-//  just replace the localStorage calls in save() and loadAll()
-//  with fetch() API calls. Everything else stays the same.
+//  app.js — Frontend Logic
+//  localStorage REMOVED — sab MongoDB Atlas se hoga
+//  EC2 backend se connect ho raha hai
 // ════════════════════════════════════════════════════════════
 
 // ── STATE ────────────────────────────────────────────────────
 let entries = [];
 let selectedType = 'note';
-let searchQuery = '';
+let searchQuery  = '';
 
-// ── STORAGE LAYER ─────────────────────────────────────────────
-// 🔁 SWAP THESE with fetch('/api/...') when your EC2 backend is ready
+// ── API BASE URL ──────────────────────────────────────────────
+// Same EC2 pe frontend+backend hai toh '' rakho
+// Alag hai (GitHub Pages) toh: const API = 'http://YOUR_EC2_IP';
+const API = '';
 
-function save(entry) {
-  entries.unshift(entry);
-  localStorage.setItem('vault_entries', JSON.stringify(entries));
-}
-
-function deleteById(id) {
-  entries = entries.filter(e => e.id !== id);
-  localStorage.setItem('vault_entries', JSON.stringify(entries));
-}
-
-function loadAll() {
-  entries = JSON.parse(localStorage.getItem('vault_entries') || '[]');
-}
-
-// ── INIT ──────────────────────────────────────────────────────
-loadAll();
-render();
+// ── APP START ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  loadEntries();
+});
 
 // ── TYPE TAG SELECTION ────────────────────────────────────────
 document.querySelectorAll('.tag-btn').forEach(btn => {
@@ -40,164 +28,183 @@ document.querySelectorAll('.tag-btn').forEach(btn => {
   });
 });
 
-// ── ADD ENTRY ─────────────────────────────────────────────────
-document.getElementById('btn-save').addEventListener('click', addEntry);
-
-function addEntry() {
-  const titleEl   = document.getElementById('inp-title');
-  const contentEl = document.getElementById('inp-content');
-
-  const title   = titleEl.value.trim();
-  const content = contentEl.value.trim();
-
-  if (!title || !content) {
-    showToast('Fill in title & content!');
-    return;
-  }
-
-  const entry = {
-    id:      generateId(),
-    title,
-    content,
-    type:    selectedType,
-    created: new Date().toISOString()
-  };
-
-  save(entry);
-
-  titleEl.value   = '';
-  contentEl.value = '';
-
-  render();
-  showToast('Stored ✓');
-}
-
 // ── SEARCH ────────────────────────────────────────────────────
 document.getElementById('search').addEventListener('input', e => {
   searchQuery = e.target.value.toLowerCase();
   render();
 });
 
-// ── KEYBOARD SHORTCUT: Ctrl/Cmd + Enter to save ───────────────
+// ── KEYBOARD SHORTCUT ─────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-    addEntry();
-  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') addEntry();
 });
+
+// ── ADD ENTRY ─────────────────────────────────────────────────
+document.getElementById('btn-save').addEventListener('click', addEntry);
+
+async function addEntry() {
+  const titleEl   = document.getElementById('inp-title');
+  const contentEl = document.getElementById('inp-content');
+  const fileEl    = document.getElementById('inp-file');
+
+  const title   = titleEl.value.trim();
+  const content = contentEl.value.trim();
+
+  if (!title || !content) { showToast('Fill in title & content!'); return; }
+
+  const btn = document.getElementById('btn-save');
+  btn.textContent = '[ SAVING... ]';
+  btn.disabled = true;
+
+  try {
+    const formData = new FormData();
+    formData.append('name', title);
+    formData.append('email', 'user@vault.com');
+    formData.append('message', content);
+    formData.append('type', selectedType);
+    if (fileEl && fileEl.files[0]) formData.append('file', fileEl.files[0]);
+
+    const res  = await fetch(`${API}/api/submit`, { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save');
+
+    titleEl.value = '';
+    contentEl.value = '';
+    if (fileEl) fileEl.value = '';
+
+    showToast('Stored ✓');
+    await loadEntries();
+
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  } finally {
+    btn.textContent = '[ STORE TO VAULT ]';
+    btn.disabled = false;
+  }
+}
+
+// ── LOAD FROM MONGODB ─────────────────────────────────────────
+async function loadEntries() {
+  try {
+    const res  = await fetch(`${API}/api/entries`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load');
+    entries = data.data || [];
+    render();
+  } catch (error) {
+    showToast('Could not load entries');
+  }
+}
+
+// ── DELETE ────────────────────────────────────────────────────
+async function deleteEntry(id) {
+  try {
+    const res  = await fetch(`${API}/api/entries/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Delete failed');
+    entries = entries.filter(e => e._id !== id);
+    render();
+    showToast('Deleted');
+  } catch (error) {
+    showToast('Delete failed');
+  }
+}
+
+// ── COPY ──────────────────────────────────────────────────────
+function copyEntry(id) {
+  const e = entries.find(x => x._id === id);
+  if (!e) return;
+  navigator.clipboard.writeText(e.message)
+    .then(() => showToast('Copied!'))
+    .catch(() => showToast('Copy failed'));
+}
 
 // ── RENDER ────────────────────────────────────────────────────
 function render() {
   const filtered = entries.filter(e =>
-    e.title.toLowerCase().includes(searchQuery)   ||
-    e.content.toLowerCase().includes(searchQuery) ||
-    e.type.includes(searchQuery)
+    (e.name    || '').toLowerCase().includes(searchQuery) ||
+    (e.message || '').toLowerCase().includes(searchQuery) ||
+    (e.type    || '').toLowerCase().includes(searchQuery)
   );
-
   renderStats();
   renderCount(filtered.length);
   renderGrid(filtered);
 }
 
 function renderStats() {
-  const types = ['note', 'secret', 'link', 'code', 'todo'];
-  const html = `
-    <div class="stat">
-      <div class="stat-value">${entries.length}</div>
-      <div class="stat-label">Total</div>
-    </div>
+  const types = ['note','secret','link','code','todo'];
+  const el    = document.getElementById('stats-bar');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="stat"><div class="stat-value">${entries.length}</div><div class="stat-label">Total</div></div>
     ${types.map(t => `
       <div class="stat">
-        <div class="stat-value">${entries.filter(e => e.type === t).length}</div>
+        <div class="stat-value">${entries.filter(e=>(e.type||'note')===t).length}</div>
         <div class="stat-label">${t}s</div>
-      </div>
-    `).join('')}
-  `;
-  document.getElementById('stats-bar').innerHTML = html;
+      </div>`).join('')}`;
 }
 
 function renderCount(n) {
-  document.getElementById('count-badge').textContent =
-    `${n} ENTR${n === 1 ? 'Y' : 'IES'}`;
+  const el = document.getElementById('count-badge');
+  if (el) el.textContent = `${n} ENTR${n===1?'Y':'IES'}`;
 }
 
 function renderGrid(filtered) {
   const grid = document.getElementById('vault-grid');
-
+  if (!grid) return;
   if (filtered.length === 0) {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="big">EMPTY</div>
-        <p>${entries.length === 0 ? 'vault is empty — start storing' : 'no results found'}</p>
+        <p>${entries.length===0 ? 'vault is empty — start storing' : 'no results found'}</p>
       </div>`;
     return;
   }
-
   grid.innerHTML = filtered.map(e => buildCard(e)).join('');
 }
 
 function buildCard(e) {
-  const isSecret = e.type === 'secret';
-  const date     = new Date(e.created);
+  const isSecret = (e.type||'note') === 'secret';
+  const date     = new Date(e.createdAt);
   const timeStr  =
-    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+    date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) +
     ' · ' +
-    date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-
+    date.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  const fileBadge = e.file && e.file.filename
+    ? `<span class="file-badge">📎 ${e.file.originalname}</span>` : '';
   return `
-    <div class="entry-card" data-type="${e.type}" data-id="${e.id}">
+    <div class="entry-card" data-type="${e.type||'note'}" data-id="${e._id}">
       <div class="entry-header">
-        <div class="entry-title">${escHtml(e.title)}</div>
-        <div class="entry-type">${e.type}</div>
+        <div class="entry-title">${escHtml(e.name)}</div>
+        <div class="entry-type">${e.type||'note'}</div>
       </div>
-      <div class="entry-body ${isSecret ? 'secret-blur' : ''}"
-           ${isSecret ? 'title="Hover to reveal"' : ''}>
-        ${escHtml(e.content)}
+      <div class="entry-body ${isSecret?'secret-blur':''}" ${isSecret?'title="Hover to reveal"':''}>
+        ${escHtml(e.message)}
       </div>
+      ${fileBadge}
       <div class="entry-footer">
         <div class="entry-time">${timeStr}</div>
         <div class="entry-actions">
-          <button class="icon-btn"     onclick="copyEntry('${e.id}')"   title="Copy">⎘</button>
-          <button class="icon-btn del" onclick="deleteEntry('${e.id}')" title="Delete">✕</button>
+          <button class="icon-btn"     onclick="copyEntry('${e._id}')"   title="Copy">⎘</button>
+          <button class="icon-btn del" onclick="deleteEntry('${e._id}')" title="Delete">✕</button>
         </div>
       </div>
     </div>`;
 }
 
-// ── ENTRY ACTIONS ─────────────────────────────────────────────
-function copyEntry(id) {
-  const e = entries.find(x => x.id === id);
-  if (!e) return;
-  navigator.clipboard.writeText(e.content)
-    .then(() => showToast('Copied!'))
-    .catch(() => showToast('Copy failed'));
-}
-
-function deleteEntry(id) {
-  deleteById(id);
-  render();
-  showToast('Deleted');
-}
-
 // ── TOAST ─────────────────────────────────────────────────────
 let toastTimer;
-
 function showToast(msg) {
   const t = document.getElementById('toast');
+  if (!t) return;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
 // ── UTILS ─────────────────────────────────────────────────────
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-}
-
-function escHtml(str) {
-  return str
-    .replace(/&/g,  '&amp;')
-    .replace(/</g,  '&lt;')
-    .replace(/>/g,  '&gt;')
-    .replace(/"/g,  '&quot;');
+function escHtml(str='') {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
