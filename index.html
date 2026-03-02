@@ -1,68 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>VAULT — Store It. Find It. Own It.</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Bebas+Neue&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="style.css" />
+  <title>Cloud Upload App</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header>
-  <div class="logo">VAULT<span>.</span></div>
-  <div class="status"><span class="dot"></span>LOCAL STORAGE — READY</div>
-</header>
+  <div class="container">
+    <h1>Cloud File Upload</h1>
 
-<main>
+    <form id="uploadForm">
+      <input type="file" name="file" required />
+      <button type="submit">Upload File</button>
+    </form>
 
-  <!-- ADD ENTRY -->
-  <div class="vault-input-section">
-    <div class="section-label">// NEW ENTRY</div>
+    <p id="message"></p>
 
-    <div class="input-row">
-      <div class="field">
-        <label>Title</label>
-        <input type="text" id="inp-title" placeholder="What is this?" />
-      </div>
-      <div class="field">
-        <label>Type</label>
-        <div class="type-tags">
-          <button class="tag-btn active" data-type="note">Note</button>
-          <button class="tag-btn" data-type="secret">Secret</button>
-          <button class="tag-btn" data-type="link">Link</button>
-          <button class="tag-btn" data-type="code">Code</button>
-          <button class="tag-btn" data-type="todo">Todo</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="field" style="margin-bottom:1rem;">
-      <label>Content</label>
-      <textarea id="inp-content" placeholder="Store anything — passwords, links, ideas, code snippets..."></textarea>
-    </div>
-
-    <button class="btn-save" id="btn-save">[ STORE TO VAULT ]</button>
+    <h2>Uploaded Files</h2>
+    <ul id="fileList"></ul>
   </div>
 
-  <!-- STATS -->
-  <div class="stats-bar" id="stats-bar"></div>
-
-  <!-- CONTROLS -->
-  <div class="controls">
-    <div class="search-wrap">
-      <input type="text" id="search" placeholder="search vault..." />
-    </div>
-    <div class="count-badge" id="count-badge">0 ENTRIES</div>
-  </div>
-
-  <!-- ENTRIES -->
-  <div class="vault-grid" id="vault-grid"></div>
-
-</main>
-
-<div class="toast" id="toast"></div>
-
-<script src="app.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
