@@ -1,210 +1,72 @@
-// ════════════════════════════════════════════════════════════
-//  app.js — Frontend Logic
-//  localStorage REMOVED — sab MongoDB Atlas se hoga
-//  EC2 backend se connect ho raha hai
-// ════════════════════════════════════════════════════════════
+const express = require("express");
+const mongoose = require("mongoose");
+const multer = require("multer");
+const path = require("path");
+const cors = require("cors");
 
-// ── STATE ────────────────────────────────────────────────────
-let entries = [];
-let selectedType = 'note';
-let searchQuery  = '';
+const app = express();
 
-// ── API BASE URL ──────────────────────────────────────────────
-// Same EC2 pe frontend+backend hai toh '' rakho
-// Alag hai (GitHub Pages) toh: const API = 'http://YOUR_EC2_IP';
-const API = '';
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static("public"));
 
-// ── APP START ─────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  loadEntries();
+// MongoDB Connection
+mongoose.connect("mongodb://127.0.0.1:27017/fileUploadDB", {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log("MongoDB Connected"))
+.catch(err => console.log(err));
+
+// Schema
+const fileSchema = new mongoose.Schema({
+  filename: String,
+  originalname: String,
+  uploadDate: {
+    type: Date,
+    default: Date.now
+  }
 });
 
-// ── TYPE TAG SELECTION ────────────────────────────────────────
-document.querySelectorAll('.tag-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tag-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedType = btn.dataset.type;
-  });
+const File = mongoose.model("File", fileSchema);
+
+// Multer Setup
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/");
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + "-" + file.originalname);
+  }
 });
 
-// ── SEARCH ────────────────────────────────────────────────────
-document.getElementById('search').addEventListener('input', e => {
-  searchQuery = e.target.value.toLowerCase();
-  render();
-});
+const upload = multer({ storage: storage });
 
-// ── KEYBOARD SHORTCUT ─────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') addEntry();
-});
-
-// ── ADD ENTRY ─────────────────────────────────────────────────
-document.getElementById('btn-save').addEventListener('click', addEntry);
-
-async function addEntry() {
-  const titleEl   = document.getElementById('inp-title');
-  const contentEl = document.getElementById('inp-content');
-  const fileEl    = document.getElementById('inp-file');
-
-  const title   = titleEl.value.trim();
-  const content = contentEl.value.trim();
-
-  if (!title || !content) { showToast('Fill in title & content!'); return; }
-
-  const btn = document.getElementById('btn-save');
-  btn.textContent = '[ SAVING... ]';
-  btn.disabled = true;
-
+// Upload Route
+app.post("/upload", upload.single("file"), async (req, res) => {
   try {
-    const formData = new FormData();
-    formData.append('name', title);
-    formData.append('email', 'user@vault.com');
-    formData.append('message', content);
-    formData.append('type', selectedType);
-    if (fileEl && fileEl.files[0]) formData.append('file', fileEl.files[0]);
+    const newFile = new File({
+      filename: req.file.filename,
+      originalname: req.file.originalname
+    });
 
-    const res  = await fetch(`${API}/api/submit`, { method: 'POST', body: formData });
-    const data = await res.json();
+    await newFile.save();
 
-    if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save');
-
-    titleEl.value = '';
-    contentEl.value = '';
-    if (fileEl) fileEl.value = '';
-
-    showToast('Stored ✓');
-    await loadEntries();
-
+    res.json({ message: "File uploaded successfully!" });
   } catch (error) {
-    showToast('Error: ' + error.message);
-  } finally {
-    btn.textContent = '[ STORE TO VAULT ]';
-    btn.disabled = false;
+    res.status(500).json({ message: "Upload failed" });
   }
-}
+});
 
-// ── LOAD FROM MONGODB ─────────────────────────────────────────
-async function loadEntries() {
-  try {
-    const res  = await fetch(`${API}/api/entries`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to load');
-    entries = data.data || [];
-    render();
-  } catch (error) {
-    showToast('Could not load entries');
-  }
-}
+// Get All Files
+app.get("/files", async (req, res) => {
+  const files = await File.find().sort({ uploadDate: -1 });
+  res.json(files);
+});
 
-// ── DELETE ────────────────────────────────────────────────────
-async function deleteEntry(id) {
-  try {
-    const res  = await fetch(`${API}/api/entries/${id}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Delete failed');
-    entries = entries.filter(e => e._id !== id);
-    render();
-    showToast('Deleted');
-  } catch (error) {
-    showToast('Delete failed');
-  }
-}
-
-// ── COPY ──────────────────────────────────────────────────────
-function copyEntry(id) {
-  const e = entries.find(x => x._id === id);
-  if (!e) return;
-  navigator.clipboard.writeText(e.message)
-    .then(() => showToast('Copied!'))
-    .catch(() => showToast('Copy failed'));
-}
-
-// ── RENDER ────────────────────────────────────────────────────
-function render() {
-  const filtered = entries.filter(e =>
-    (e.name    || '').toLowerCase().includes(searchQuery) ||
-    (e.message || '').toLowerCase().includes(searchQuery) ||
-    (e.type    || '').toLowerCase().includes(searchQuery)
-  );
-  renderStats();
-  renderCount(filtered.length);
-  renderGrid(filtered);
-}
-
-function renderStats() {
-  const types = ['note','secret','link','code','todo'];
-  const el    = document.getElementById('stats-bar');
-  if (!el) return;
-  el.innerHTML = `
-    <div class="stat"><div class="stat-value">${entries.length}</div><div class="stat-label">Total</div></div>
-    ${types.map(t => `
-      <div class="stat">
-        <div class="stat-value">${entries.filter(e=>(e.type||'note')===t).length}</div>
-        <div class="stat-label">${t}s</div>
-      </div>`).join('')}`;
-}
-
-function renderCount(n) {
-  const el = document.getElementById('count-badge');
-  if (el) el.textContent = `${n} ENTR${n===1?'Y':'IES'}`;
-}
-
-function renderGrid(filtered) {
-  const grid = document.getElementById('vault-grid');
-  if (!grid) return;
-  if (filtered.length === 0) {
-    grid.innerHTML = `
-      <div class="empty-state">
-        <div class="big">EMPTY</div>
-        <p>${entries.length===0 ? 'vault is empty — start storing' : 'no results found'}</p>
-      </div>`;
-    return;
-  }
-  grid.innerHTML = filtered.map(e => buildCard(e)).join('');
-}
-
-function buildCard(e) {
-  const isSecret = (e.type||'note') === 'secret';
-  const date     = new Date(e.createdAt);
-  const timeStr  =
-    date.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) +
-    ' · ' +
-    date.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-  const fileBadge = e.file && e.file.filename
-    ? `<span class="file-badge">📎 ${e.file.originalname}</span>` : '';
-  return `
-    <div class="entry-card" data-type="${e.type||'note'}" data-id="${e._id}">
-      <div class="entry-header">
-        <div class="entry-title">${escHtml(e.name)}</div>
-        <div class="entry-type">${e.type||'note'}</div>
-      </div>
-      <div class="entry-body ${isSecret?'secret-blur':''}" ${isSecret?'title="Hover to reveal"':''}>
-        ${escHtml(e.message)}
-      </div>
-      ${fileBadge}
-      <div class="entry-footer">
-        <div class="entry-time">${timeStr}</div>
-        <div class="entry-actions">
-          <button class="icon-btn"     onclick="copyEntry('${e._id}')"   title="Copy">⎘</button>
-          <button class="icon-btn del" onclick="deleteEntry('${e._id}')" title="Delete">✕</button>
-        </div>
-      </div>
-    </div>`;
-}
-
-// ── TOAST ─────────────────────────────────────────────────────
-let toastTimer;
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
-}
-
-// ── UTILS ─────────────────────────────────────────────────────
-function escHtml(str='') {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
+// Start Server
+app.listen(5000, "0.0.0.0", () => {
+  console.log("Server running on port 5000");
+});
