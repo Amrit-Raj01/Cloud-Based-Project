@@ -1,21 +1,16 @@
 {
-  "name": "vault-backend",
+  "name": "cloud-upload-app",
   "version": "1.0.0",
-  "description": "Vault App Backend - Express + MongoDB + File Upload",
-  "main": "server.js",
+  "description": "File upload app with MongoDB",
+  "main": "app.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node app.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "mongoose": "^8.0.0",
+    "mongoose": "^7.6.0",
     "multer": "^1.4.5-lts.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "morgan": "^1.10.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
+    "dotenv": "^16.3.1"
   }
 }
